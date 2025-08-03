@@ -27,9 +27,9 @@ export async function connectWallet(): Promise<WalletInfo | null> {
       return null;
     }
 
-    // Используем правильный метод с префиксом 'near:'
+    // Используем правильный метод с префиксом 'near:' из SDK
     // setupHotWallet.ts показывает, что signIn внутри SDK не принимает contractId/methodNames напрямую в request
-    // Эти параметры обрабатываются позже, при signAndSendTransaction или внутри SDK
+    // Эти параметры обрабатываются позже или внутри SDK
     const response = await wallet.request('near:signIn', {});
     
     if (response && response.accountId) {
@@ -63,7 +63,7 @@ export async function disconnectWallet(): Promise<void> {
       return;
     }
 
-    // Используем правильный метод с префиксом
+    // Используем правильный метод с префиксом из SDK
     await wallet.request('near:signOut', {});
     
     localStorage.removeItem('near_wallet_connected');
