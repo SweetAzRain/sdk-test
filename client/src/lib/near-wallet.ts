@@ -1,5 +1,5 @@
 // client/src/lib/near-wallet.ts
-// КОД ИЗ worknahui.txt С ДОБАВЛЕННОЙ ПОДДЕРЖКОЙ TELEGRAM WEBAPP
+// КОД ИЗ worknahui.txt БЕЗ ИЗМЕНЕНИЙ ДЛЯ БРАУЗЕРА + ПОДДЕРЖКА TELEGRAM WEBAPP
 import HOT from '@hot-wallet/sdk';
 
 interface WalletInfo {
@@ -18,43 +18,60 @@ function getWalletInstance(): any {
   return walletInstance;
 }
 
-// Проверяем, запущено ли приложение внутри Telegram WebApp (НОВОЕ)
-function isTelegramWebApp(): boolean {
-  return typeof window !== 'undefined' && !!(window as any).Telegram?.WebApp;
+// === ДОБАВЛЕНО: Функция для определения контекста выполнения ===
+function isRunningInTelegramWebApp(): boolean {
+  // Безопасная проверка, как в коде библиотеки из Pasted_Text_1754232010153.txt
+  if (typeof window === "undefined") return false;
+  const win = window as any;
+  // Проверяем, как в библиотеке: typeof window.Telegram?.WebApp !== "undefined"
+  // или просто наличие объекта
+  return !!(win.Telegram && win.Telegram.WebApp);
 }
 
 export async function connectWallet(): Promise<WalletInfo | null> {
   try {
     const wallet = getWalletInstance();
     
-    // Проверка, запущено ли в Telegram WebApp (НОВОЕ)
-    const useTelegramAPI = isTelegramWebApp();
-    
-    let response;
-    if (useTelegramAPI) {
-      // Используем API для Telegram WebApp (НОВОЕ)
-      console.log("HOT: Connecting via Telegram WebApp");
-      // setupHotWallet.ts показывает, что для Telegram используется 'near:signIn'
-      response = await wallet.request('near:signIn', {});
+    // === ДОБАВЛЕНО: Проверка контекста ===
+    if (isRunningInTelegramWebApp()) {
+      // === ДОБАВЛЕНО: Логика для Telegram WebApp ===
+      // Согласно коду библиотеки (Pasted_Text_1754232010153.txt, строка ~150+), 
+      // внутри метода request класса HOT есть логика для Telegram WebApp.
+      // Она использует методы с префиксом 'near:'.
+      // setupHotWallet.ts также показывает использование 'near:signIn'.
+      console.log("HOT Wallet: Connecting via Telegram WebApp (near:signIn)");
+      // Вызываем 'near:signIn' без параметров contractId/methodNames, как в setupHotWallet.ts
+      const response = await wallet.request('near:signIn', {});
+      
+      if (response && response.accountId) {
+        localStorage.setItem('near_wallet_connected', 'true');
+        localStorage.setItem('near_wallet_account_id', response.accountId);
+        return {
+          isConnected: true,
+          accountId: response.accountId,
+          wallet, // Передаем wallet, как в оригинале
+        };
+      }
+      return null;
     } else {
-      // Ваш оригинальный рабочий код для расширения (БЕЗ ИЗМЕНЕНИЙ)
-      console.log("HOT: Connecting via browser extension");
-      response = await wallet.request('signIn', {
+      // === БЕЗ ИЗМЕНЕНИЙ: Логика для браузерного расширения из worknahui.txt ===
+      console.log("HOT Wallet: Connecting via browser extension (signIn)");
+      const response = await wallet.request('signIn', {
         contractId: import.meta.env.VITE_NFT_CONTRACT_ADDRESS || 'easy-proxy.near',
         methodNames: ['nft_mint_proxy'],
       });
-    }
 
-    if (response && response.accountId) {
-      localStorage.setItem('near_wallet_connected', 'true');
-      localStorage.setItem('near_wallet_account_id', response.accountId);
-      return {
-        isConnected: true,
-        accountId: response.accountId,
-        wallet,
-      };
+      if (response && response.accountId) {
+        localStorage.setItem('near_wallet_connected', 'true');
+        localStorage.setItem('near_wallet_account_id', response.accountId);
+        return {
+          isConnected: true,
+          accountId: response.accountId,
+          wallet,
+        };
+      }
+      return null;
     }
-    return null;
   } catch (error: any) {
     console.error('Wallet connection error:', error);
     if (error && error.message) {
@@ -63,7 +80,8 @@ export async function connectWallet(): Promise<WalletInfo | null> {
     if (error && error.stack) {
       console.error('Error stack:', error.stack);
     }
-    // Обработка специфичной ошибки Telegram WebApp (НОВОЕ)
+    // === ДОБАВЛЕНО: Обработка специфичной ошибки из библиотеки ===
+    // В коде библиотеки (Pasted_Text_1754232010153.txt, строка ~7) определен класс RequestFailed
     if (error && error.name === "RequestFailed") {
        console.error("HOT SDK RequestFailed payload:", error.payload);
     }
@@ -75,17 +93,15 @@ export async function disconnectWallet(): Promise<void> {
   try {
     const wallet = getWalletInstance();
     
-    // Проверка, запущено ли в Telegram WebApp (НОВОЕ)
-    const useTelegramAPI = isTelegramWebApp();
-    
-    if (useTelegramAPI) {
-      // Используем API для Telegram WebApp (НОВОЕ)
-      console.log("HOT: Disconnecting via Telegram WebApp");
-      // setupHotWallet.ts показывает, что для Telegram используется 'near:signOut'
+    // === ДОБАВЛЕНО: Проверка контекста ===
+    if (isRunningInTelegramWebApp()) {
+      // === ДОБАВЛЕНО: Логика для Telegram WebApp ===
+      console.log("HOT Wallet: Disconnecting via Telegram WebApp (near:signOut)");
+      // setupHotWallet.ts показывает использование 'near:signOut'.
       await wallet.request('near:signOut', {});
     } else {
-      // Ваш оригинальный рабочий код для расширения (БЕЗ ИЗМЕНЕНИЙ)
-      console.log("HOT: Disconnecting via browser extension");
+      // === БЕЗ ИЗМЕНЕНИЙ: Логика для браузерного расширения из worknahui.txt ===
+      console.log("HOT Wallet: Disconnecting via browser extension (signOut)");
       await wallet.request('signOut', {});
     }
     
@@ -94,7 +110,7 @@ export async function disconnectWallet(): Promise<void> {
     walletInstance = null;
   } catch (error) {
     console.error('Wallet disconnection error:', error);
-    // Очищаем localStorage даже если ошибка
+    // Очищаем localStorage даже если ошибка, чтобы UI не застрял
     localStorage.removeItem('near_wallet_connected');
     localStorage.removeItem('near_wallet_account_id');
   }
@@ -135,45 +151,47 @@ export async function signAndSendTransaction(params: {
       throw new Error('Wallet not connected');
     }
     
-    // Проверка, запущено ли в Telegram WebApp (НОВОЕ)
-    const useTelegramAPI = isTelegramWebApp();
-    
-    let result;
-    if (useTelegramAPI) {
-      // Используем API для Telegram WebApp (НОВОЕ)
-      console.log("HOT: Signing transaction via Telegram WebApp");
-      console.log("HOT: Transaction params:", params);
-      // setupHotWallet.ts показывает, что для Telegram используется 'near:signAndSendTransactions'
+    // === ДОБАВЛЕНО: Проверка контекста ===
+    if (isRunningInTelegramWebApp()) {
+      // === ДОБАВЛЕНО: Логика для Telegram WebApp ===
+      console.log("HOT Wallet: Signing transaction via Telegram WebApp (near:signAndSendTransactions)");
+      // setupHotWallet.ts показывает использование 'near:signAndSendTransactions'
+      // и структуры { transactions: [...] }.
       const sdkResult = await walletInfo.wallet.request('near:signAndSendTransactions', {
         transactions: [
           {
             receiverId: params.receiverId,
             actions: params.actions,
+            // signerId SDK может подставить автоматически
           }
         ]
       });
-      console.log("HOT: Transaction result from SDK:", sdkResult);
-      // Обработка результата согласно структуре из SDK (transactions[0])
+      // Обработка результата согласно структуре из SDK (transactions[0]), как в setupHotWallet.ts
       const transactionResult = sdkResult?.transactions?.[0];
       if (!transactionResult) {
-          throw new Error('Transaction result is empty or malformed');
+          throw new Error('Transaction result is empty or malformed for Telegram WebApp');
       }
-      result = transactionResult;
+
+      return {
+        success: true,
+        transactionHash: transactionResult.transaction?.hash || transactionResult.transaction_outcome?.id,
+        transaction_outcome: transactionResult.transaction_outcome,
+        transaction: transactionResult.transaction,
+        result: transactionResult, // Возвращаем обработанный результат
+      };
     } else {
-      // Ваш оригинальный рабочий код для расширения (БЕЗ ИЗМЕНЕНИЙ)
-      console.log("HOT: Signing transaction via browser extension");
-      console.log("HOT: Transaction params:", params);
-      result = await walletInfo.wallet.request('signAndSendTransaction', params);
-      console.log("HOT: Transaction result from SDK:", result);
+      // === БЕЗ ИЗМЕНЕНИЙ: Логика для браузерного расширения из worknahui.txt ===
+      console.log("HOT Wallet: Signing transaction via browser extension (signAndSendTransaction)");
+      const result = await walletInfo.wallet.request('signAndSendTransaction', params);
+      
+      return {
+        success: true,
+        transactionHash: result.transaction?.hash,
+        transaction_outcome: result.transaction_outcome,
+        transaction: result.transaction,
+        result,
+      };
     }
-    
-    return {
-      success: true,
-      transactionHash: result.transaction?.hash || result.transaction_outcome?.id,
-      transaction_outcome: result.transaction_outcome,
-      transaction: result.transaction,
-      result,
-    };
   } catch (error: any) {
     console.error('Transaction signing error:', error);
     if (error && error.message) {
@@ -182,7 +200,7 @@ export async function signAndSendTransaction(params: {
     if (error && error.stack) {
       console.error('Error stack:', error.stack);
     }
-    // Обработка специфичной ошибки Telegram WebApp (НОВОЕ)
+    // === ДОБАВЛЕНО: Обработка специфичной ошибки из библиотеки ===
     if (error && error.name === "RequestFailed") {
        console.error("HOT SDK RequestFailed payload:", error.payload);
     }
