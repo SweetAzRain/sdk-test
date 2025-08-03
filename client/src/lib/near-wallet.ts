@@ -30,7 +30,7 @@ export async function connectWallet(): Promise<WalletInfo | null> {
       console.log("Connecting via Telegram WebApp");
       response = await wallet.request('near:signIn', {});
     } else {
-      // Для расширения браузера используем старый API
+      // Для расширения браузера используем старый API (ваш рабочий код)
       console.log("Connecting via browser extension");
       response = await wallet.request('signIn', {
         contractId: import.meta.env.VITE_NFT_CONTRACT_ADDRESS || 'easy-proxy.near',
@@ -78,7 +78,7 @@ export async function disconnectWallet(): Promise<void> {
       console.log("Disconnecting via Telegram WebApp");
       await wallet.request('near:signOut', {});
     } else {
-      // Для расширения браузера используем старый API
+      // Для расширения браузера используем старый API (ваш рабочий код)
       console.log("Disconnecting via browser extension");
       await wallet.request('signOut', {});
     }
@@ -152,7 +152,7 @@ export async function signAndSendTransaction(params: {
       }
       result = transactionResult;
     } else {
-      // Для расширения браузера используем старый API
+      // Для расширения браузера используем старый API (ваш рабочий код)
       console.log("Signing transaction via browser extension");
       result = await walletInfo.wallet.request('signAndSendTransaction', params);
     }
