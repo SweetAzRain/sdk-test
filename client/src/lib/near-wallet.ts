@@ -17,11 +17,6 @@ function getWalletInstance(): typeof HOT | null {
   return walletInstance;
 }
 
-// Проверяем, запущено ли приложение внутри Telegram WebApp
-function isTelegramWebApp(): boolean {
-  return typeof window !== 'undefined' && !!(window as any).Telegram?.WebApp;
-}
-
 export async function connectWallet(): Promise<WalletInfo | null> {
   try {
     const wallet = getWalletInstance();
@@ -29,12 +24,6 @@ export async function connectWallet(): Promise<WalletInfo | null> {
     if (!wallet) {
       console.error('HOT Wallet provider is not available.');
       return null;
-    }
-
-    // Для Telegram WebApp используем специальную логику
-    if (isTelegramWebApp()) {
-      console.log("Connecting via Telegram WebApp");
-      // HOT SDK сам обработает Telegram WebApp внутри request
     }
 
     // Используем правильный метод с префиксом 'near:'
@@ -58,10 +47,6 @@ export async function connectWallet(): Promise<WalletInfo | null> {
     }
     if (error && error.stack) {
       console.error('Error stack:', error.stack);
-    }
-    // Обработка специфичных ошибок Telegram WebApp
-    if (error && error.name === "RequestFailed") {
-      console.error("HOT SDK RequestFailed payload:", error.payload);
     }
     return null;
   }
@@ -159,10 +144,6 @@ export async function signAndSendTransaction(params: {
     }
     if (error && error.stack) {
       console.error('Error stack:', error.stack);
-    }
-    // Обработка специфичных ошибок Telegram WebApp
-    if (error && error.name === "RequestFailed") {
-      console.error("HOT SDK RequestFailed payload:", error.payload);
     }
     return {
       success: false,
