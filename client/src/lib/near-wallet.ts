@@ -1,82 +1,55 @@
 // client/src/lib/near-wallet.ts
-import HOT from '@hot-wallet/sdk'; // HOT - это инстанс класса из SDK
+import HOT from '@hot-wallet/sdk';
 
 interface WalletInfo {
   isConnected: boolean;
   accountId: string | null;
-  // Убираем wallet из возвращаемого объекта, чтобы не передавать потенциально проблемный инстанс
-}
-
-// Функция для получения провайдера напрямую из window или из SDK
-// Эта логика проверяет window.hotExtension и HOT.isInjected
-// и возвращает объект с методом request.
-// Это необходимо для Telegram WebApp, где HOT.request использует fallback-механизм.
-function getHotProvider(): { request: (method: string, params: any) => Promise<any> } | null {
-  // 1. Пробуем получить провайдер напрямую из window (стандартный способ для injected wallets)
-  if (typeof window !== 'undefined' && (window as any).hotExtension) {
-    const provider = (window as any).hotExtension;
-    // Дополнительная проверка на наличие request
-    if (typeof provider.request === 'function') {
-      // console.log("Using hotExtension provider from window");
-      return provider;
-    } else {
-      // console.warn("window.hotExtension found but does not have a request method:", provider);
-    }
-  }
-
-  // 2. Если window.hotExtension нет или он неправильный, проверяем HOT.isInjected
-  // HOT SDK сам обрабатывает isInjected и использует window.hotExtension или fallback
-  if (HOT && (HOT as any).isInjected !== undefined) { // Проверяем существование свойства
-    // HOT.isInjected true/false означает, что SDK может обрабатывать запросы
-    // console.log("Using HOT SDK instance (isInjected=" + HOT.isInjected + ")");
-    // HOT сам является объектом с методом request
-    return HOT; 
-  }
-
-  // 3. Если ничего не найдено, но HOT существует и у него есть request (на случай, если isInjected не определено точно)
-  // Это может помочь в некоторых сценариях fallback внутри SDK
-  if (HOT && typeof (HOT as any).request === 'function') {
-    // console.log("Using HOT SDK instance directly (request method found)");
-    return HOT;
-  }
-
-  // 4. Если ничего не найдено
-  // console.error('HOT Wallet provider not found. Is the extension installed and enabled?');
-  // console.log("HOT object:", HOT);
-  // console.log("HOT.isInjected:", HOT?.isInjected);
-  // console.log("window.hotExtension:", typeof window !== 'undefined' ? (window as any).hotExtension : 'window is undefined');
-  return null;
+  // Намеренно не возвращаем объект wallet, чтобы избежать проблем с сериализацией или передачей проблемного инстанса.
+  // HOT SDK сам знает, как обрабатывать запросы.
 }
 
 // Проверяем, запущено ли приложение внутри Telegram WebApp
 function isRunningInTelegramWebApp(): boolean {
-  return typeof window !== 'undefined' && !!(window as any).Telegram?.WebApp;
+  // Безопасная проверка наличия Telegram WebApp API
+  if (typeof window === 'undefined') return false;
+  const win = window as any;
+  // Проверяем наличие объекта Telegram и WebApp внутри него
+  return !!(win.Telegram && win.Telegram.WebApp);
 }
 
 export async function connectWallet(): Promise<WalletInfo | null> {
   try {
+    // console.log("Attempting to connect wallet...");
+    // console.log("HOT object:", HOT);
+    // console.log("HOT typeof:", typeof HOT);
+    // console.log("HOT.request typeof:", typeof (HOT as any)?.request);
+    // console.log("HOT.isInjected:", (HOT as any)?.isInjected);
+    // console.log("isRunningInTelegramWebApp:", isRunningInTelegramWebApp());
+
+    // Проверка 1: Существует ли HOT и является ли он объектом?
+    if (!HOT || typeof HOT !== 'object') {
+       console.error("HOT Wallet SDK instance is not available or not an object.");
+       return null;
+    }
+
+    // Проверка 2: Существует ли метод request?
+    const hotRequest = (HOT as any).request;
+    if (typeof hotRequest !== 'function') {
+       console.error("HOT Wallet SDK instance does not have a callable 'request' method.", { HOT });
+       return null;
+    }
+
     const isTelegramWebApp = isRunningInTelegramWebApp();
     let response: any;
 
     if (isTelegramWebApp) {
+      // console.log("Using Telegram WebApp flow (near:signIn)");
       // Для Telegram WebApp используем методы с префиксом near:, как в setupHotWallet.ts
-      // console.log("Connecting via Telegram WebApp");
-      const provider = getHotProvider();
-      if (!provider) {
-        console.error('HOT Wallet provider is not available for Telegram WebApp connection.');
-        return null;
-      }
-      // setupHotWallet.ts показывает: if (HOT.isInjected) return [await HOT.request("near:signIn", {})];
-      response = await provider.request('near:signIn', {});
+      response = await hotRequest.call(HOT, 'near:signIn', {});
     } else {
+      // console.log("Using Browser Extension flow (signIn)");
       // Для расширения браузера используем старый API (ваш рабочий код)
-      // console.log("Connecting via browser extension");
-      const provider = getHotProvider();
-      if (!provider) {
-        console.error('HOT Wallet provider is not available for browser extension connection.');
-        return null;
-      }
-      response = await provider.request('signIn', {
+      response = await hotRequest.call(HOT, 'signIn', {
         contractId: import.meta.env.VITE_NFT_CONTRACT_ADDRESS || 'easy-proxy.near',
         methodNames: ['nft_mint_proxy'],
       });
@@ -87,10 +60,10 @@ export async function connectWallet(): Promise<WalletInfo | null> {
     if (response && response.accountId) {
       localStorage.setItem('near_wallet_connected', 'true');
       localStorage.setItem('near_wallet_account_id', response.accountId);
-      // Не возвращаем сам провайдер, чтобы избежать проблем с сериализацией или повторным использованием
       return {
         isConnected: true,
         accountId: response.accountId,
+        // Не возвращаем wallet
       };
     }
     // console.warn('SignIn response does not contain accountId:', response);
@@ -103,7 +76,7 @@ export async function connectWallet(): Promise<WalletInfo | null> {
     if (error && error.stack) {
       console.error('Error stack:', error.stack);
     }
-    // Проверим, не является ли это ошибкой из fallback-механизма SDK (iframe/polling)
+    // Обработка специфичной ошибки SDK для fallback сценариев (Telegram)
     if (error && error.name === "RequestFailed") {
        console.error("HOT SDK RequestFailed payload:", error.payload);
     }
@@ -113,40 +86,43 @@ export async function connectWallet(): Promise<WalletInfo | null> {
 
 export async function disconnectWallet(): Promise<void> {
   try {
+    // console.log("Attempting to disconnect wallet...");
+
+    // Повторяем проверки для HOT
+    if (!HOT || typeof HOT !== 'object') {
+       console.error("HOT Wallet SDK instance is not available or not an object for disconnect.");
+       // Очищаем localStorage даже если HOT недоступен
+       localStorage.removeItem('near_wallet_connected');
+       localStorage.removeItem('near_wallet_account_id');
+       return;
+    }
+
+    const hotRequest = (HOT as any).request;
+    if (typeof hotRequest !== 'function') {
+       console.error("HOT Wallet SDK instance does not have a callable 'request' method for disconnect.", { HOT });
+       // Очищаем localStorage даже если HOT недоступен
+       localStorage.removeItem('near_wallet_connected');
+       localStorage.removeItem('near_wallet_account_id');
+       return;
+    }
+
     const isTelegramWebApp = isRunningInTelegramWebApp();
-    
+
     if (isTelegramWebApp) {
-      // Для Telegram WebApp используем методы с префиксом near:, как в setupHotWallet.ts
-      // console.log("Disconnecting via Telegram WebApp");
-      const provider = getHotProvider();
-      if (!provider) {
-        console.warn('Cannot disconnect: HOT Wallet provider is not available for Telegram WebApp.');
-        // Очищаем localStorage даже если провайдер недоступен
-        localStorage.removeItem('near_wallet_connected');
-        localStorage.removeItem('near_wallet_account_id');
-        return;
-      }
-      // setupHotWallet.ts показывает: if (HOT.isInjected) HOT.request("near:signOut", {});
-      await provider.request('near:signOut', {});
+      // console.log("Using Telegram WebApp flow (near:signOut)");
+      // Для Telegram WebApp используем методы с префиксом near:
+      await hotRequest.call(HOT, 'near:signOut', {});
     } else {
-      // Для расширения браузера используем старый API (ваш рабочий код)
-      // console.log("Disconnecting via browser extension");
-      const provider = getHotProvider();
-      if (!provider) {
-        console.warn('Cannot disconnect: HOT Wallet provider is not available for browser extension.');
-        // Очищаем localStorage даже если провайдер недоступен
-        localStorage.removeItem('near_wallet_connected');
-        localStorage.removeItem('near_wallet_account_id');
-        return;
-      }
-      await provider.request('signOut', {});
+      // console.log("Using Browser Extension flow (signOut)");
+      // Для расширения браузера используем старый API
+      await hotRequest.call(HOT, 'signOut', {});
     }
 
     localStorage.removeItem('near_wallet_connected');
     localStorage.removeItem('near_wallet_account_id');
   } catch (error) {
     console.error('Wallet disconnection error:', error);
-    // Даже если ошибка, очищаем localStorage, чтобы UI не застрял в "подключенном" состоянии
+    // Даже если ошибка, очищаем localStorage, чтобы UI не застрял
     localStorage.removeItem('near_wallet_connected');
     localStorage.removeItem('near_wallet_account_id');
   }
@@ -158,10 +134,10 @@ export async function getConnectedWallet(): Promise<WalletInfo> {
     const accountId = localStorage.getItem('near_wallet_account_id');
     
     if (isConnected && accountId) {
-      // При проверке статуса не пытаемся снова подключаться, просто возвращаем сохраненные данные
       return {
         isConnected: true,
         accountId,
+        // Не возвращаем wallet
       };
     }
     return {
@@ -179,7 +155,7 @@ export async function getConnectedWallet(): Promise<WalletInfo> {
 
 export async function signAndSendTransaction(params: {
   receiverId: string;
-  actions: any[]; // Ожидаем, что actions уже в формате, понятном SDK
+  actions: any[];
 }): Promise<any> {
   try {
     const isConnected = localStorage.getItem('near_wallet_connected') === 'true';
@@ -187,23 +163,26 @@ export async function signAndSendTransaction(params: {
       throw new Error('Wallet not connected');
     }
 
+    // console.log("Attempting to sign transaction...");
+    // console.log("Transaction params:", params);
+
+    // Повторяем проверки для HOT
+    if (!HOT || typeof HOT !== 'object') {
+       throw new Error("HOT Wallet SDK instance is not available or not an object for transaction signing.");
+    }
+
+    const hotRequest = (HOT as any).request;
+    if (typeof hotRequest !== 'function') {
+       throw new Error("HOT Wallet SDK instance does not have a callable 'request' method for transaction signing.");
+    }
+
     const isTelegramWebApp = isRunningInTelegramWebApp();
     let result: any;
 
     if (isTelegramWebApp) {
-      // Для Telegram WebApp используем методы с префиксом near: и структуру transactions, как в setupHotWallet.ts
-      // console.log("Signing transaction via Telegram WebApp");
-      // console.log("Transaction params:", params);
-      const provider = getHotProvider();
-      if (!provider) {
-        throw new Error('HOT Wallet provider is not available for Telegram WebApp transaction signing');
-      }
-      
-      // setupHotWallet.ts показывает:
-      // const { transactions } = await HOT.request("near:signAndSendTransactions", {
-      //   transactions: [{ actions: params.actions, receiverId, signerId: params.signerId }],
-      // });
-      const sdkResult = await provider.request('near:signAndSendTransactions', {
+      // console.log("Using Telegram WebApp flow (near:signAndSendTransactions)");
+      // Для Telegram WebApp используем методы с префиксом near: и структуру transactions
+      const sdkResult = await hotRequest.call(HOT, 'near:signAndSendTransactions', {
         transactions: [
           {
             receiverId: params.receiverId,
@@ -212,7 +191,7 @@ export async function signAndSendTransaction(params: {
           }
         ]
       });
-      // console.log("Transaction result:", sdkResult);
+      // console.log("Transaction result from SDK:", sdkResult);
 
       // Обработка результата согласно структуре из SDK (transactions[0])
       const transactionResult = sdkResult?.transactions?.[0];
@@ -222,15 +201,10 @@ export async function signAndSendTransaction(params: {
       result = transactionResult;
 
     } else {
-      // Для расширения браузера используем старый API (ваш рабочий код)
-      // console.log("Signing transaction via browser extension");
-      // console.log("Transaction params:", params);
-      const provider = getHotProvider();
-      if (!provider) {
-        throw new Error('HOT Wallet provider is not available for browser extension transaction signing');
-      }
-      result = await provider.request('signAndSendTransaction', params);
-      // console.log("Transaction result:", result);
+      // console.log("Using Browser Extension flow (signAndSendTransaction)");
+      // Для расширения браузера используем старый API
+      result = await hotRequest.call(HOT, 'signAndSendTransaction', params);
+      // console.log("Transaction result from SDK:", result);
     }
 
     return {
@@ -249,7 +223,7 @@ export async function signAndSendTransaction(params: {
     if (error && error.stack) {
       console.error('Error stack:', error.stack);
     }
-    // Проверим, не является ли это ошибкой из fallback-механизма SDK
+    // Обработка специфичной ошибки SDK
     if (error && error.name === "RequestFailed") {
        console.error("HOT SDK RequestFailed payload:", error.payload);
     }
