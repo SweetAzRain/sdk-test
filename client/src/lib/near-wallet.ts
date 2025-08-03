@@ -1,5 +1,5 @@
 // client/src/lib/near-wallet.ts
-// КОД ИЗ worknahui.txt С ИСПРАВЛЕННЫМ ВЫЗОВОМ HOT.request
+// КОД ИЗ worknahui.txt + ИСПРАВЛЕНИЕ ДЛЯ TELEGRAM WEBAPP
 import HOT from '@hot-wallet/sdk'; // HOT - это инстанс класса из SDK
 
 interface WalletInfo {
@@ -8,13 +8,59 @@ interface WalletInfo {
   // Убираем wallet из возвращаемого объекта, чтобы не передавать потенциально проблемный инстанс
 }
 
+// Функция для получения провайдера напрямую из window или из SDK
+// (Оставлена как в worknahui.txt)
+function getHotProvider(): { request: (method: string, params: any) => Promise<any> } | null {
+  // 1. Пробуем получить провайдер напрямую из window (стандартный способ для injected wallets)
+  if (typeof window !== 'undefined' && (window as any).hotExtension) {
+    const provider = (window as any).hotExtension;
+    // Дополнительная проверка на наличие request
+    if (typeof provider.request === 'function') {
+      // console.log("Using hotExtension provider from window");
+      return provider;
+    } else {
+      // console.warn("window.hotExtension found but does not have a request method:", provider);
+    }
+  }
+
+  // 2. Если window.hotExtension нет или он неправильный, проверяем HOT.isInjected
+  // Согласно коду SDK, HOT.request внутри проверяет isInjected и использует window.hotExtension или fallback
+  if (HOT && HOT.isInjected) {
+    // HOT.isInjected true означает, что SDK может обрабатывать запросы через injected request или fallback
+    // console.log("Using HOT SDK instance (isInjected=true)");
+    // HOT сам является объектом с методом request, как показано в index.ts SDK
+    return HOT;
+  }
+
+  // 3. Если ничего не найдено
+  // console.error('HOT Wallet provider not found. Is the extension installed and enabled?');
+  // console.log("HOT object:", HOT);
+  // console.log("HOT.isInjected:", HOT?.isInjected);
+  // console.log("window.hotExtension:", typeof window !== 'undefined' ? (window as any).hotExtension : 'window is undefined');
+  return null;
+}
+
 export async function connectWallet(): Promise<WalletInfo | null> {
   try {
-    // console.log("HOT Wallet: Attempting to connect using HOT.request('near:signIn', {})");
-    // ВСЕГДА вызываем HOT.request напрямую. SDK сам определит контекст (расширение, injected, Telegram fallback).
-    const response = await HOT.request('near:signIn', {});
-    // console.log("HOT Wallet: SignIn response:", response);
+    let response: any;
+    const provider = getHotProvider();
 
+    if (provider) {
+      // console.log("HOT Wallet: Using provider from getHotProvider");
+      // Используем правильный метод с префиксом 'near:' из SDK
+      // setupHotWallet.ts показывает, что 'near:signIn' внутри SDK может не требовать параметров contractId/methodNames напрямую в request
+      // Эти параметры обрабатываются позже или внутри SDK
+      // console.log("Calling provider.request('near:signIn', {})");
+      response = await provider.request('near:signIn', {});
+    } else {
+      // console.log("HOT Wallet: getHotProvider returned null, falling back to direct HOT.request");
+      // Если провайдер не найден (например, в Telegram WebApp), вызываем HOT.request напрямую.
+      // HOT SDK сам определит контекст и запустит fallback-механизм (iframe/polling или Telegram link).
+      response = await HOT.request('near:signIn', {});
+    }
+    
+    // console.log("SignIn response:", response);
+    
     if (response && response.accountId) {
       localStorage.setItem('near_wallet_connected', 'true');
       localStorage.setItem('near_wallet_account_id', response.accountId);
@@ -24,15 +70,15 @@ export async function connectWallet(): Promise<WalletInfo | null> {
         accountId: response.accountId,
       };
     }
-    // console.warn('HOT Wallet: SignIn response does not contain accountId:', response);
+    // console.warn('SignIn response does not contain accountId:', response);
     return null;
   } catch (error: any) {
-    console.error('HOT Wallet connection error:', error);
+    console.error('Wallet connection error:', error);
     if (error && error.message) {
-      console.error('HOT Wallet Error message:', error.message);
+      console.error('Error message:', error.message);
     }
     if (error && error.stack) {
-      console.error('HOT Wallet Error stack:', error.stack);
+      console.error('Error stack:', error.stack);
     }
     // Проверим, не является ли это ошибкой из fallback-механизма SDK (iframe/polling)
     if (error && error.name === "RequestFailed") {
@@ -44,14 +90,22 @@ export async function connectWallet(): Promise<WalletInfo | null> {
 
 export async function disconnectWallet(): Promise<void> {
   try {
-    // console.log("HOT Wallet: Attempting to disconnect using HOT.request('near:signOut', {})");
-    // ВСЕГДА вызываем HOT.request напрямую. SDK сам определит контекст.
-    await HOT.request('near:signOut', {});
+    const provider = getHotProvider();
+    if (provider) {
+      // console.log("HOT Wallet: Using provider from getHotProvider for disconnect");
+      // Используем правильный метод с префиксом из SDK
+      // console.log("Calling provider.request('near:signOut', {})");
+      await provider.request('near:signOut', {});
+    } else {
+      // console.log("HOT Wallet: getHotProvider returned null for disconnect, falling back to direct HOT.request");
+      // Если провайдер не найден (например, в Telegram WebApp), вызываем HOT.request напрямую.
+      await HOT.request('near:signOut', {});
+    }
     
     localStorage.removeItem('near_wallet_connected');
     localStorage.removeItem('near_wallet_account_id');
   } catch (error) {
-    console.error('HOT Wallet disconnection error:', error);
+    console.error('Wallet disconnection error:', error);
     // Даже если ошибка, очищаем localStorage, чтобы UI не застрял в "подключенном" состоянии
     localStorage.removeItem('near_wallet_connected');
     localStorage.removeItem('near_wallet_account_id');
@@ -75,7 +129,7 @@ export async function getConnectedWallet(): Promise<WalletInfo> {
       accountId: null,
     };
   } catch (error) {
-    console.error('HOT Wallet: Error checking wallet status:', error);
+    console.error('Error checking wallet status:', error);
     return {
       isConnected: false,
       accountId: null,
@@ -93,42 +147,75 @@ export async function signAndSendTransaction(params: {
       throw new Error('Wallet not connected');
     }
 
-    // console.log("HOT Wallet: Attempting to sign transaction using HOT.request('near:signAndSendTransactions', ...)");
-    // console.log("HOT Wallet: Transaction params:", params);
-    
-    // ВСЕГДА вызываем HOT.request напрямую. SDK сам определит контекст.
-    const result = await HOT.request('near:signAndSendTransactions', {
-       transactions: [
-         {
-           receiverId: params.receiverId,
-           actions: params.actions,
-           // signerId SDK может подставить автоматически
-         }
-       ]
-    });
-    // console.log("HOT Wallet: Transaction result:", result);
+    let result: any;
+    const provider = getHotProvider();
 
-    // Обработка результата согласно структуре из SDK (transactions[0])
-    const transactionResult = result?.transactions?.[0];
-    if (!transactionResult) {
-        throw new Error('Transaction result is empty or malformed');
+    if (provider) {
+      // console.log("HOT Wallet: Using provider from getHotProvider for transaction signing");
+      // Используем правильный метод с префиксом и структурой из SDK
+      // setupHotWallet.ts показывает, что signAndSendTransaction внутри SDK оборачивает параметры
+      // в { transactions: [...] } и вызывает 'near:signAndSendTransactions'
+      // console.log("Calling provider.request('near:signAndSendTransactions', ...)");
+      // console.log("Transaction params:", params);
+      
+      const sdkResult = await provider.request('near:signAndSendTransactions', {
+        transactions: [
+          {
+            receiverId: params.receiverId,
+            actions: params.actions,
+            // signerId SDK может подставить автоматически
+          }
+        ]
+      });
+      // console.log("Transaction result:", sdkResult);
+
+      // Обработка результата согласно структуре из SDK (transactions[0])
+      const transactionResult = sdkResult?.transactions?.[0];
+      if (!transactionResult) {
+          throw new Error('Transaction result is empty or malformed');
+      }
+      result = transactionResult;
+
+    } else {
+      // console.log("HOT Wallet: getHotProvider returned null for transaction signing, falling back to direct HOT.request");
+      // Если провайдер не найден (например, в Telegram WebApp), вызываем HOT.request напрямую.
+      // console.log("Calling HOT.request('near:signAndSendTransactions', ...)");
+      // console.log("Transaction params:", params);
+      
+      const sdkResult = await HOT.request('near:signAndSendTransactions', {
+        transactions: [
+          {
+            receiverId: params.receiverId,
+            actions: params.actions,
+            // signerId SDK может подставить автоматически
+          }
+        ]
+      });
+      // console.log("Transaction result:", sdkResult);
+
+      // Обработка результата согласно структуре из SDK (transactions[0])
+      const transactionResult = sdkResult?.transactions?.[0];
+      if (!transactionResult) {
+          throw new Error('Transaction result is empty or malformed');
+      }
+      result = transactionResult;
     }
 
     return {
       success: true,
-      transactionHash: transactionResult?.transaction?.hash || transactionResult?.transaction_outcome?.id,
-      transaction_outcome: transactionResult?.transaction_outcome,
-      transaction: transactionResult?.transaction,
-      result: transactionResult,
+      transactionHash: result?.transaction?.hash || result?.transaction_outcome?.id,
+      transaction_outcome: result?.transaction_outcome,
+      transaction: result?.transaction,
+      result: result,
     };
 
   } catch (error: any) {
-    console.error('HOT Wallet: Transaction signing error:', error);
+    console.error('Transaction signing error:', error);
     if (error && error.message) {
-      console.error('HOT Wallet: Error message:', error.message);
+      console.error('Error message:', error.message);
     }
     if (error && error.stack) {
-      console.error('HOT Wallet: Error stack:', error.stack);
+      console.error('Error stack:', error.stack);
     }
     // Проверим, не является ли это ошибкой из fallback-механизма SDK
     if (error && error.name === "RequestFailed") {
